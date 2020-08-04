@@ -18,7 +18,7 @@ class LogMessage {
 
     multi method gist(LogMessage:D:) {
         sub esc-csv($s) {
-            '"' ~ $s.subst(/'"'/, '\\"', :g) ~ '"';
+            '"' ~ $s.subst(/'"'/, '""', :g) ~ '"';
         }
 
         ($.author.Str,
@@ -29,6 +29,144 @@ class LogMessage {
 }
 
 grammar LogGram {
+    # critical to note that this grammar assumes C comments with logs don't
+    # start on a line of code, e.g. "int i; /*\n$Log$ ...". If we tried being
+    # super precise with what's allowed, then at some point we'd be writing a C
+    # parser, and that's something you don't want.
+
+    token TOP {
+#        <.non-log>*
+
+        [^^ <!log-set> \N* \n]*
+
+        <log-set>
+
+        [^^ \N* \n]*
+        [^^ \N* $]?
+    }
+
+    token comment-start {
+        | '/*'
+        | '#' \h* <.log-intro>
+    }
+
+    token eol {
+        $$ [\n || $]
+    }
+
+    token non-log {
+        <!{$*IN_COMMENT}>
+        ^^ \h* <!comment-start> \N* <.eol>
+    }
+
+    proto token log-set {*}
+
+    multi token log-set:<c-star> {
+        :my $*MODE = "C";
+
+        :my $*WERE_PRE_LINES = False;
+        ^^ \h* '/*' \h* [<!log-intro> [<!cs-end> \N]* <.eol> {$*WERE_PRE_LINES = True}]?
+        [<.pre-cs-log-line> {$*WERE_PRE_LINES}]*
+        [<!{$*WERE_PRE_LINES}> \h* | <.cs-linepre>] <.log-intro> \h* <.eol>
+        <.cs-blank-line>*
+        <commit-log>*
+        <.post-cs-log-line>*
+        <.post-cs-ending>
+    }
+
+    token cs-linepre {
+        ^^ \h* ['*' <![/]> \h*]?
+    }
+
+    token cs-end { '*/' }
+
+    token pre-cs-log-line {
+        <.cs-linepre> <!log-intro> [<!cs-end> \N]* <.eol>
+    }
+
+    token cs-blank-line { <.cs-linepre> <.eol> }
+
+    token post-cs-log-line {
+        <.cs-linepre> <!before <[rR]>evision»> [<!cs-end> \N]* <.eol>
+    }
+
+    token post-cs-ending {
+        <.cs-linepre> [<!cs-end> \N]* <.cs-end> \N* <.eol>
+    }
+
+    multi token log-set:<bash> {
+        :my $*MODE = "Bash";
+
+        <.bash-linepre> <.log-intro> \h* <.eol>
+        <.bash-blank-line>*
+        <commit-log>*
+    }
+
+    token bash-linepre {
+        ^^ \h* '#' \h*
+    }
+
+    token bash-blank-line {
+        ^^ \h* '#' \h* <.eol>
+    }
+
+
+
+
+
+    token LINE_PRE {
+        || [
+           | <?{$*MODE eq "C"}> <.cs-linepre>
+           | <?{$*MODE eq "Bash"}> <.bash-linepre>
+           ]
+        || <!{$*MODE eq "C"|"Bash"}> { die "$*MODE unrecognized!" }
+    }
+
+    token BLANK_LINE {
+        || [
+           | <?{$*MODE eq "C"}> <.cs-blank-line>
+           | <?{$*MODE eq "Bash"}> <.bash-blank-line>
+           ]
+        || <!{$*MODE eq "C"|"Bash"}> { die "$*MODE unrecognized!" }
+    }
+
+    token COMMENT_END {
+        || <?{$*MODE eq "C"}> <.cs-end>
+        || <!{$*MODE eq "C"|"Bash"}> { die "$*MODE unrecognized!" }
+    }
+
+
+
+    token log-intro { '$Log$' }
+
+    proto token commit-log {*}
+
+    token commit-log:<newstyle> {
+        <.LINE_PRE> Revision \h+ <rev> \h+ <tstamp> \h+ $<auth>=(\N+) <.eol>
+        <log-body>?
+    }
+
+    token commit-log:<oldstyle> {
+        <.LINE_PRE> revision \h+ <rev> \h+ "locked by:" \N+ <.eol>
+        <.LINE_PRE> 'date:' \h+ <tstamp> ';' \h+
+                   'author:' \h+ $<auth>=([<![;]> \N]+) ';'
+                   \N+ <.eol>
+        <log-body>?
+    }
+
+    token log-body {
+        [
+        | <.LINE_PRE> <!before <[Rr]>evision»> ([<!COMMENT_END> \N]+) <.eol>
+        | <.BLANK_LINE>
+        ]+
+
+        # just to see if I should bother being accomodating
+        [ <.LINE_PRE> [<!COMMENT_END> \N]+ <.COMMENT_END>
+          { die "Comment ends on same line as message!" } ]?
+    }
+
+    token rev { [\d|\.]+ }
+
     token tstamp {
         $<y>=(\d+) <[-/]>
         $<mo>=(\d+) <[-/]>
@@ -37,100 +175,68 @@ grammar LogGram {
         $<mn>=(\d+) \:
         $<s>=(\d+)
         $<tz>=(<[+-]> \d+)?
+    }
+}
 
-         { if $<tz> {
-               make DateTime.new(:year(+$<y>) :month(+$<mo>) :day(+$<d>)
-                                 :hour(+$<h>) :minute(+$<mn>) :second(+$<s>)
-                                 :timezone(+~$<tz> * 60 * 60));
-           } else {
-               # we base our decision on what timezone this unknown stamp is
-               # based on the first iQue CVS commit's date.
-               my $iQ = DateTime.new("2002-10-03T20:21:11Z");
-
-               my $ifJ = DateTime.new(:year(+$<y>) :month(+$<mo>) :day(+$<d>)
-                                      :hour(+$<h>) :minute(+$<mn>) :second(+$<s>)
-                                      :timezone(9 * 60 * 60));
-
-               my $ifC = DateTime.new(:year(+$<y>) :month(+$<mo>) :day(+$<d>)
-                                      :hour(+$<h>) :minute(+$<mn>) :second(+$<s>)
-                                      :timezone(8 * 60 * 60));
-
-               if $ifJ >= $iQ && $ifC >= $iQ { # china time
-                   make $ifC;
-               } elsif $ifJ < $iQ && $ifC < $iQ { # japan time
-                   make $ifJ;
-               } else {
-                   die "Confused on time: C $ifC J $ifJ iQ $iQ";
-               }
-           }
-         }
+class LogActs {
+    method TOP($/) {
+        make $<log-set>.ast;
     }
 
-    token v {
-        [\d|\.]+
-
-        { make $/.Str.Version }
+    method log-set:<c-star>($/) {
+        make $<commit-log>».ast;
     }
 
-    token logline {
-        :my $*TRAILPRE = $*PREFIX.trim-trailing;
-        ^^ <!before $*PREFIX <[Rr]>evision>
-           [
-           | $*PREFIX (\N*)
-           | $*TRAILPRE \h* $$
-           ]
-        \n
-#        { if $0 { say $0.Str.perl; prompt("?>") } }
-        { make $0 ?? ~$0 !! "" }
+    method log-set:<bash>($/) {
+        make $<commit-log>».ast;
     }
 
-    proto token logentry {*}
-
-    multi token logentry:<new> {
-        ^^ $*PREFIX Revision \h+ <v> \h+ <tstamp> \h+ $<auth>=(\N+) \n
-        <logline>*
-
-        { make LogMessage.new(:timestamp($<tstamp>.ast)
-                              :author(~$<auth>)
-                              :revision($<v>.ast)
-                              :message($<logline>.map(*.ast).join("\n"))) }
+    method commit-log:<newstyle>($/) {
+        make LogMessage.new(:timestamp($<tstamp>.ast)
+                            :author(~$<auth>)
+                            :revision($<rev>.ast)
+                            :message($<log-body> ?? $<log-body>.ast !! ""));
     }
 
-    multi token logentry:<old> {
-        ^^ $*PREFIX revision \h+ <v> \h+ "locked by:" \N+ \n
-        ^^ $*PREFIX 'date:' \h+ <tstamp>';' \h+
-                    'author:' \h+ $<auth>=([<![;]> \N]+)';'
-                    \N+ \n
-        <logline>*
-
-        { make LogMessage.new(:timestamp($<tstamp>.ast)
-                              :author(~$<auth>)
-                              :revision($<v>.ast)
-                              :message($<logline>.map(*.ast).join("\n"))) }
+    method commit-log:<oldstyle>($/) {
+        make LogMessage.new(:timestamp($<tstamp>.ast)
+                            :author(~$<auth>)
+                            :revision($<rev>.ast)
+                            :message($<log-body> ?? $<log-body>.ast !! ""));
     }
 
-    token logs {
-        :my $*PREFIX;
-        ^^ $<prefix>=([<![$]> \N]+) '$Log$' \n
-        { $*PREFIX = ~$<prefix> }
-        <logentry>*
-
-        <!before $*PREFIX>
-
-        { make $<logentry>».ast }
+    method log-body($/) {
+        make $0.map(*.Str).join("\n");
     }
 
-    token pre-line {
-        ^^ <!before [<![$]> \N]+ '$Log$' \n> \N* \n
-    }
+    method rev($/) { make $/.Str.Version }
 
-    token TOP {
-        <.pre-line>*
-        <logs>
-        [\N* \n]*
-        [\N* $]?
+    method tstamp($/) {
+        if $<tz> {
+            make DateTime.new(:year(+$<y>) :month(+$<mo>) :day(+$<d>)
+                              :hour(+$<h>) :minute(+$<mn>) :second(+$<s>)
+                              :timezone(+~$<tz> * 60 * 60));
+        } else {
+            # we base our decision on what timezone this unknown stamp is
+            # based on the first iQue CVS commit's date.
+            my $iQ = DateTime.new("2002-10-03T20:21:11Z");
 
-        { make $<logs>.ast }
+            my $ifJ = DateTime.new(:year(+$<y>) :month(+$<mo>) :day(+$<d>)
+                                   :hour(+$<h>) :minute(+$<mn>) :second(+$<s>)
+                                   :timezone(9 * 60 * 60));
+
+            my $ifC = DateTime.new(:year(+$<y>) :month(+$<mo>) :day(+$<d>)
+                                   :hour(+$<h>) :minute(+$<mn>) :second(+$<s>)
+                                   :timezone(8 * 60 * 60));
+
+            if $ifJ >= $iQ && $ifC >= $iQ { # china time
+                make $ifC;
+            } elsif $ifJ < $iQ && $ifC < $iQ { # japan time
+                make $ifJ;
+            } else {
+                die "Confused on time: C $ifC J $ifJ iQ $iQ";
+            }
+        }
     }
 }
 
@@ -171,7 +277,7 @@ sub grab-logs(IO::Path $F, @logs) {
     return unless $res ~~ /'$Log$'/;
 
     # try to find the log:
-    die "\$Log\$ exists in $F.absolute() but couldn't parse" unless LogGram.parse($res);
+    die "\$Log\$ exists in $F.absolute() but couldn't parse" unless LogGram.parse($res, :actions(LogActs));
 
     for $/.ast {
         @logs.push($_);
@@ -242,7 +348,7 @@ sub MAIN(Str $dir, Bool :$new-first = False) {
                 $last-msg.revision.append($_.revision);
         } else {
             $outfile.say: $last-msg.gist;
-            $last-msg = Empty;
+            $last-msg = $_; # bobby bench shogun
         }
     }
 
