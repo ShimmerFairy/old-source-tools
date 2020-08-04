@@ -363,10 +363,14 @@ sub descend(IO::Path $D, @logs, $stats = []) {
     }
 }
 
-sub MAIN(Str $dir, Bool :$new-first = False) {
+sub MAIN(Str $dir, Bool :$new-first = False, Str :o(:$output) = "./out.csv") {
     my $root = $dir.path;
 
-    my $outfile = open("./outfile", :w);
+    # the reason we open the file now instead of when we actually write to it is
+    # so that any problems with writing to the chosen location come up _before_
+    # you just spent a bunch of CPU time churning through data that won't even
+    # be handed over.
+    my $outfile = open($output, :w);
 
     my @logs;
 
