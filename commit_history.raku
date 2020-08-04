@@ -65,13 +65,24 @@ grammar LogGram {
         :my $*MODE = "C";
 
         :my $*WERE_PRE_LINES = False;
-        ^^ \h* '/*' \h* [<!log-intro> [<!cs-end> \N]* <.eol> {$*WERE_PRE_LINES = True}]?
+        :my $*BORDER = ""; # for top/bottom borders on comments
+        ^^ \h* '/*' [<.cs-topborder> || \h* <.cs-earlyintro>]?
         [<.pre-cs-log-line> {$*WERE_PRE_LINES}]*
         [<!{$*WERE_PRE_LINES}> \h* | <.cs-linepre>] <.log-intro> \h* <.eol>
         <.cs-blank-line>*
         <commit-log>*
         <.post-cs-log-line>*
         <.post-cs-ending>
+    }
+
+    token cs-earlyintro {
+        <!log-intro> [<!cs-end> \N]* <.eol> {$*WERE_PRE_LINES = True}
+    }
+
+    token cs-topborder {
+        $<ch>=(<-alnum>) { $*BORDER = ~$<ch> }
+        $*BORDER+ <.eol>
+        { $*WERE_PRE_LINES = True }
     }
 
     token cs-linepre {
@@ -94,6 +105,10 @@ grammar LogGram {
 
     token post-cs-log-line {
         <.cs-linepre> <!before <[rR]>evision»> [<!cs-end> \N]* <.eol>
+    }
+
+    token cs-bottom-border {
+        <?{$*BORDER}> <.cs-linepre> $*BORDER+ <.cs-end> \N* <.eol>
     }
 
     token post-cs-ending {
@@ -152,6 +167,11 @@ grammar LogGram {
         || <!{$*MODE eq "C"|"Bash"}> { die "$*MODE unrecognized!" }
     }
 
+    token BOTTOM_BORDER_OK {
+        || <?{$*MODE eq "C"}> <.cs-bottom-border>
+        || <!{$*MODE eq "C"|"Bash"}> { die "$*MODE unrecognized!" }
+    }
+
 
     token log-intro { '$Log' [':' <-[$]>+]? '$' }
 
@@ -180,7 +200,7 @@ grammar LogGram {
         ]+
 
         # just to see if I should bother being accomodating
-        [ <.LINE_PRE> [<!COMMENT_END> \N]+ <.COMMENT_END>
+        [ <!BOTTOM_BORDER_OK> <.LINE_PRE> [<!COMMENT_END> \N]+ <.COMMENT_END>
           { die "Comment ends on same line as message!" } ]?
     }
 
@@ -335,6 +355,8 @@ sub descend(IO::Path $D, @logs, $stats = []) {
             descend($_, @logs, @substats);
         } elsif $_.f {
             grab-logs($_, @logs);
+        } elsif $_.l {
+            note "\r\e[K\e[33mWarning:\e[0m Broken symlink at \e[1m$_.Str()\e[0m";
         } else {
             die "$D.Str.perl() is a weird file type!";
         }
