@@ -267,11 +267,11 @@ sub grab-logs(IO::Path $F, @logs) {
     # rakudo can't do EUC-JP, so we have to try encodings with iconv (This
     # assumes you have iconv.)
 
-    my $res = run «iconv -feuc-jp -tutf8 "$F.absolute()"», :out :err;
+    my $res = run «iconv -f euc-jp -t utf-8 "$F.absolute()"», :out :err;
 
     unless $res {
         # Shift-JIS perhaps?
-        $res = run «iconv -fshift-jis -tutf8 "$F.absolute()"», :out :err;
+        $res = run «iconv -f shift-jis -t utf-8 "$F.absolute()"», :out :err;
 
         unless $res {
             #...maybe rakudo can handle it?
