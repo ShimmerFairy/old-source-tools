@@ -153,8 +153,7 @@ grammar LogGram {
     }
 
 
-
-    token log-intro { '$Log$' }
+    token log-intro { '$Log' [':' <-[$]>+]? '$' }
 
     proto token commit-log {*}
 
@@ -294,10 +293,10 @@ sub grab-logs(IO::Path $F, @logs) {
     }
 
     # if there is no $Log$, then skip this file
-    return unless $res ~~ /'$Log$'/;
+    return unless $res ~~ /'$Log' [':' <-[$]>+]? '$'/;
 
     # try to find the log:
-    die "\$Log\$ exists in $F.absolute() but couldn't parse" unless LogGram.parse($res, :actions(LogActs));
+    die "\$Log\$ line exists in $F.absolute() but couldn't parse" unless LogGram.parse($res, :actions(LogActs));
 
     for $/.ast {
         @logs.push($_);
