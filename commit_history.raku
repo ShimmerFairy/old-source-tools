@@ -379,7 +379,11 @@ sub MAIN(Str $dir, Bool :$new-first = False) {
 
     my $last-msg;
 
-    for @logs.sort(*.timestamp) {
+    my @sortlogs = @logs.sort(*.timestamp);
+
+    @sortlogs.=reverse if $new-first;
+
+    for @sortlogs {
         if !$last-msg.defined {
             $last-msg = $_;
         } elsif $last-msg.timestamp eqv $_.timestamp
@@ -389,7 +393,7 @@ sub MAIN(Str $dir, Bool :$new-first = False) {
                 $last-msg.revision.append($_.revision);
         } else {
             $outfile.say: $last-msg.gist;
-            $last-msg = $_; # bobby bench shogun
+            $last-msg = $_;
         }
     }
 
