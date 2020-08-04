@@ -78,6 +78,12 @@ grammar LogGram {
         ^^ \h* ['*' <![/]> \h*]?
     }
 
+    # trailing '*' whitespace is not picked up here so that we can preserve
+    # post-ident whitespace formatting
+    token cs-log-linepre {
+        ^^ \h* ['*' <![/]>]
+    }
+
     token cs-end { '*/' }
 
     token pre-cs-log-line {
@@ -106,6 +112,12 @@ grammar LogGram {
         ^^ \h* '#' \h*
     }
 
+    # trailing '#' whitespace is not picked up here so that we can preserve
+    # post-ident whitespace formatting
+    token bash-log-linepre {
+        ^^ \h* '#'
+    }
+
     token bash-blank-line {
         ^^ \h* '#' \h* <.eol>
     }
@@ -116,8 +128,13 @@ grammar LogGram {
 
     token LINE_PRE {
         || [
-           | <?{$*MODE eq "C"}> <.cs-linepre>
-           | <?{$*MODE eq "Bash"}> <.bash-linepre>
+           | <?{$*MODE eq "C"}> <.cs-log-linepre>
+           | <?{$*MODE eq "Bash"}> <.bash-log-linepre>
+           ]
+           # padding could be nothing, so empty string check won't work
+           [
+           | <?{$*PADDING.defined}> $*PADDING
+           | <!{$*PADDING.defined}> (\h*) {$*PADDING = ~$0}
            ]
         || <!{$*MODE eq "C"|"Bash"}> { die "$*MODE unrecognized!" }
     }
@@ -142,11 +159,13 @@ grammar LogGram {
     proto token commit-log {*}
 
     token commit-log:<newstyle> {
+        :my $*PADDING = Str;
         <.LINE_PRE> Revision \h+ <rev> \h+ <tstamp> \h+ $<auth>=(\N+) <.eol>
         <log-body>?
     }
 
     token commit-log:<oldstyle> {
+        :my $*PADDING = Str;
         <.LINE_PRE> revision \h+ <rev> \h+ "locked by:" \N+ <.eol>
         <.LINE_PRE> 'date:' \h+ <tstamp> ';' \h+
                    'author:' \h+ $<auth>=([<![;]> \N]+) ';'
@@ -154,9 +173,10 @@ grammar LogGram {
         <log-body>?
     }
 
+    # extra \h* in before to deal with the next revision line being more indented
     token log-body {
         [
-        | <.LINE_PRE> <!before <[Rr]>evision»> ([<!COMMENT_END> \N]+) <.eol>
+        | <.LINE_PRE> <!before \h* <[Rr]>evision»> ([<!COMMENT_END> \N]+) <.eol>
         | <.BLANK_LINE>
         ]+
 
