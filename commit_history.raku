@@ -409,3 +409,36 @@ sub MAIN(Str $dir, Bool :$new-first = False, Str :o(:$output) = "./out.csv") {
 #    $outfile.say: @logs.sort(*.timestamp).map(*.gist).join("\n");
     say "Done!";
 }
+
+sub USAGE() {
+    note Q:s:to/EOHELP/;
+commit_history : A tool to help pull commit logs embedded in source code
+
+Usage:
+
+    $*PROGRAM-NAME [--new-first] [-o=|--output=<output file>] <input directory>
+
+Note that <input directory> must be a directory; you cannot pull the commits
+from a single file (this tool is intended to help reconstruct the commit logs of
+a whole repository, which includes finding the same commit logs in multiple
+files).
+
+The output is a CSV file with a header, compliant with RFC 4180 except for the
+strict requirement of ending lines with CRLF. (The newline will be whatever your
+system's Raku thinks "\n" means.) The specific MIME type of the output is
+'text/csv[header=present,charset=UTF-8]'.
+
+Options:
+
+    --new-first   Put the newest commits first in the output, instead of the
+                  default of oldest first. Can be explicitly negated as
+                  '--/new-first', or explicit booleans can be supplied as
+                  '--new-first=True' or '--new-first=False'.
+
+    --output, -o  Takes a path to a file as an argument, which must be writable.
+                  This is optional, and if not supplied defaults to 'out.csv' in
+                  the current working directory. An argument of '-' will print
+                  to standard out.
+EOHELP
+
+}
