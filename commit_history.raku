@@ -5,6 +5,12 @@ use v6;
 
 #use Grammar::Debugger;
 
+#use Digest::MD5;
+
+sub fix-exception(Str $fcont) {
+    return $fcont;
+}
+
 class LogMessage {
     has IO::Path @.filename is rw;
     has DateTime $.timestamp;
@@ -86,13 +92,15 @@ grammar LogGram {
     }
 
     token cs-linepre {
-        ^^ \h* ['*' <![/]> \h*]?
+        # the '/'? is because a couple files think it'd be funny to start commit
+        # log lines with /* instead of ' *'.
+        ^^ \h* ['/'? '*' <![/]> \h*]?
     }
 
     # trailing '*' whitespace is not picked up here so that we can preserve
     # post-ident whitespace formatting
     token cs-log-linepre {
-        ^^ \h* ['*' <![/]>]
+        ^^ \h* ['/'? '*' <![/]>]?
     }
 
     token cs-end { '*/' }
@@ -108,7 +116,7 @@ grammar LogGram {
     }
 
     token cs-bottom-border {
-        <?{$*BORDER}> <.cs-linepre> $*BORDER+ <.cs-end> \N* <.eol>
+        <?{$*BORDER}> <.cs-linepre> [<!cs-end> $*BORDER]+ <.cs-end> \N* <.eol>
     }
 
     token post-cs-ending {
@@ -148,7 +156,7 @@ grammar LogGram {
            ]
            # padding could be nothing, so empty string check won't work
            [
-           | <?{$*PADDING.defined}> $*PADDING
+           | <?{$*PADDING.defined}> [$*PADDING || (\h*) <?{ $*PADDING.chars > $0.Str.chars}> ]
            | <!{$*PADDING.defined}> (\h*) {$*PADDING = ~$0}
            ]
         || <!{$*MODE eq "C"|"Bash"}> { die "$*MODE unrecognized!" }
@@ -311,6 +319,8 @@ sub grab-logs(IO::Path $F, @logs) {
     unless $res ~~ Str {
         $res = $res.out.slurp(:close);
     }
+
+    $res = fix-exception($res);
 
     # if there is no $Log$, then skip this file
     return unless $res ~~ /'$Log' [':' <-[$]>+]? '$'/;
