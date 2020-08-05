@@ -5,12 +5,6 @@ use v6;
 
 #use Grammar::Debugger;
 
-#use Digest::MD5;
-
-sub fix-exception(Str $fcont) {
-    return $fcont;
-}
-
 class LogMessage {
     has IO::Path @.filename is rw;
     has DateTime $.timestamp;
@@ -94,13 +88,16 @@ grammar LogGram {
     token cs-linepre {
         # the '/'? is because a couple files think it'd be funny to start commit
         # log lines with /* instead of ' *'.
-        ^^ \h* ['/'? '*' <![/]> \h*]?
+        ^^ <.cs-log-linepre> \h*
     }
 
     # trailing '*' whitespace is not picked up here so that we can preserve
     # post-ident whitespace formatting
     token cs-log-linepre {
-        ^^ \h* ['/'? '*' <![/]>]?
+        ^^ \h* [
+               || '/'? '*' <![/]>
+               || '#' # some jackass files put these in front of their C-style commit logs instead
+               ]?
     }
 
     token cs-end { '*/' }
@@ -319,8 +316,6 @@ sub grab-logs(IO::Path $F, @logs) {
     unless $res ~~ Str {
         $res = $res.out.slurp(:close);
     }
-
-    $res = fix-exception($res);
 
     # if there is no $Log$, then skip this file
     return unless $res ~~ /'$Log' [':' <-[$]>+]? '$'/;
